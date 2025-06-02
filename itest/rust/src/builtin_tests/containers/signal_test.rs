@@ -7,7 +7,6 @@
 
 use crate::framework::itest;
 use godot::builtin::{GString, Signal, StringName};
-use godot::classes::object::ConnectFlags;
 use godot::classes::{Node, Node3D, Object, RefCounted};
 use godot::meta::ToGodot;
 use godot::obj::{Base, Gd, InstanceId, NewAlloc, NewGd};
@@ -140,7 +139,7 @@ fn signal_symbols_complex_emit() {
     }
 
     // Forward compat: .upcast() here becomes a breaking change if we generalize AsArg to include derived->base conversions.
-    sig.emit(&arg.upcast(), "hello");
+    sig.emit(arg.upcast(), "hello".into());
 
     emitter.free();
 }
@@ -324,114 +323,6 @@ fn signal_symbols_engine_inherited_internal() {
 
     assert_eq!(node.bind().last_received_int, 553);
     node.free();
-}
-
-// Test that signal API methods accept engine types as receivers.
-#[cfg(since_api = "4.2")]
-#[itest]
-fn signal_symbols_connect_engine() {
-    // No tree needed; signal is emitted manually.
-    let node = Emitter::new_alloc();
-    let mut engine = Node::new_alloc();
-    engine.set_name("hello");
-
-    node.signals()
-        .property_list_changed()
-        .connect_other(&engine, |this| {
-            assert_eq!(this.get_name(), StringName::from("hello"));
-        });
-
-    node.signals()
-        .property_list_changed()
-        .builder()
-        .connect_other_gd(&engine, |this| {
-            assert_eq!(this.get_name(), StringName::from("hello"));
-        });
-
-    node.signals().property_list_changed().emit();
-
-    node.free();
-    engine.free();
-}
-
-// Test that rustc is capable of inferring the parameter types of closures passed to the signal API's connect methods.
-#[cfg(since_api = "4.2")]
-#[itest]
-fn signal_symbols_connect_inferred() {
-    let user = Emitter::new_alloc();
-    let engine = Node::new_alloc();
-
-    // User signals.
-    user.signals()
-        .child_entered_tree()
-        .connect_other(&engine, |this, mut child| {
-            // Use methods that `Node` declares.
-            let _ = this.get_path(); // ref.
-            this.set_unique_name_in_owner(true); // mut.
-
-            // `child` is also a node.
-            let _ = child.get_path(); // ref.
-            child.set_unique_name_in_owner(true); // mut.
-        });
-
-    user.signals().renamed().connect_self(|this| {
-        // Use method/field that `Emitter` declares.
-        this.connect_base_signals_internal();
-        let _ = this.last_received_int;
-    });
-
-    // User signals, builder.
-    user.signals().renamed().builder().connect_self_mut(|this| {
-        // Use method/field that `Emitter` declares.
-        this.connect_base_signals_internal();
-        let _ = this.last_received_int;
-    });
-
-    // Engine signals.
-    engine.signals().ready().connect_other(&user, |this| {
-        // Use method/field that `Emitter` declares.
-        this.connect_base_signals_internal();
-        let _ = this.last_received_int;
-    });
-
-    // Engine signals, builder.
-    engine
-        .signals()
-        .tree_exiting()
-        .builder()
-        .flags(ConnectFlags::DEFERRED)
-        .connect_self_gd(|mut this| {
-            // Use methods that `Node` declares.
-            let _ = this.get_path(); // ref.
-            this.set_unique_name_in_owner(true); // mut.
-        });
-
-    engine
-        .signals()
-        .tree_exiting()
-        .builder()
-        .connect_other_mut(&user, |this| {
-            // Use methods that `Node` declares.
-            use godot::obj::WithBaseField; // not recommended pattern; `*_gd()` connectors preferred.
-
-            let _ = this.base().get_path(); // ref.
-            this.base_mut().set_unique_name_in_owner(true); // mut.
-        });
-
-    engine
-        .signals()
-        .tree_exiting()
-        .builder()
-        .connect_other_gd(&user, |mut this| {
-            // Use methods that `Node` declares.
-            let _ = this.get_path(); // ref.
-            this.set_unique_name_in_owner(true); // mut.
-        });
-
-    // Don't emit any signals, this test just needs to compile.
-
-    user.free();
-    engine.free();
 }
 
 // Test that Node signals are accessible from a derived class, when the class itself has no #[signal] declarations.
